@@ -20,14 +20,12 @@ dependencies = [
     "openpyxl>=3.1",
     "tqdm>=4.60",
     "python-dotenv>=1.0",
-    "streamlit>=1.30",
+    "json-repair",
+    "sympy",
 ]
 
 [project.urls]
 Source = "https://anonymous.4open.science/r/LinAlg-LLM-Benchmarking-Extended-57C2"
 
 [tool.setuptools.packages.find]
-include = ["pipeline*", "judge_prompts*"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
+include = ["judge_prompts*"]

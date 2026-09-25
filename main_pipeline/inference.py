@@ -6,7 +6,7 @@ LinAlg-Bench · Stage 1 — Inference with LLM Equivalence Check (inference.py)
 
 Title:       0-shot inference with post-hoc LLM equivalence verification
 Author:      <Anonymous> Research Team
-Version:     2.0  (changes from v1: see CHANGELOG.md)
+Version:     2.0
 Date:        2026-04-11
 
 PURPOSE:
