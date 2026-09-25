@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "linalgbench"
+version = "1.0.0"
+description = "LinAlg-Bench: Where LLMs Stop Computing and Start Hallucinating"
+authors = [
+    {name = "<Anonymous> Research Team"},
+]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "openai>=2.0",
+    "google-genai>=1.0",
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "openpyxl>=3.1",
+    "tqdm>=4.60",
+    "python-dotenv>=1.0",
+    "streamlit>=1.30",
+]
+
+[project.urls]
+Source = "https://anonymous.4open.science/r/LinAlg-LLM-Benchmarking-Extended-57C2"
+
+[tool.setuptools.packages.find]
+include = ["pipeline*", "judge_prompts*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
