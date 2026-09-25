@@ -2,7 +2,7 @@
 """
 subcat_config.py — Per-subcategory configuration and answer extraction.
 
-Version:     2.0
+Version:     2.0  (changes from v1: see CHANGELOG.md)
 
 Central registry for subcategory-specific logic:
   • Ground truth computation (parse correct answer from answer_latex)

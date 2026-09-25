@@ -2,7 +2,7 @@
 """
 inference_llm.py — LLM transport layer for inference scripts.
 
-Version:     2.0
+Version:     2.0  (changes from v1: see CHANGELOG.md)
 
 Provides unified inference client that auto-detects backend and handles common
 patterns: retry logic, token step-up on truncation, loop detection, result
