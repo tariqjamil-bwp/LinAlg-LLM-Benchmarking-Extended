@@ -99,6 +99,44 @@ STEP 3 — run summary
   CSV; --threshold (default 0.90) sets the cutoff behind abort_triggered.
 
 ────────────────────────────────────────────────────────────────────────────
+  READING THE RAW CSV — SUPERSEDED ROWS AND KNOWN-WEAK CELLS
+────────────────────────────────────────────────────────────────────────────
+
+Every command appends, and nothing is ever rewritten, so a cell that was
+collected twice keeps both attempts. Filter on read; do not assume one row
+per (model, k).
+
+k=1 — two models carry a buggy and a corrected attempt
+  A harness bug spoiled the first k=1 run for deepseek-v3 (80.0%) and
+  llama-3.3-70b (6.7%), both recorded under phase "3". Both were re-run;
+  the corrected rows are under phase "phase1_k1_fix" (100.0% each). For
+  these two models use phase1_k1_fix and drop their phase "3" k=1 rows.
+
+  Averaging k=1 over every phase yields 84/101 = 83.2%, against the correct
+  71/71 = 100.0% — a 16.8-point understatement of the trivial baseline, which
+  flattens the accuracy-vs-chain-length curve the experiment exists to show.
+
+  gpt-4o, mistral-large-2512 and qwen-2.5-72b are unaffected: their only k=1
+  rows sit under phase "phase4_cheap" and are valid.
+
+qwen3-235b at k=23 — unreliable cell
+  9 of its 30 calls parse-failed (30%); reasoning alone consumed 36-39k
+  tokens against a 64k cap. Treat the cell as unreliable rather than as a
+  30% accuracy result, and do not re-run it at a higher cap unilaterally.
+
+qwen-2.5-72b — uneven cell sizes
+  Some cells hold fewer than the design N=15 (11 rows at k=1). Usable, with
+  correspondingly wider confidence intervals; deliberately not topped up.
+
+Column encoding
+  pass, parse_fail, reasoning_tokens and first_error_step are plain integers
+  — no "1.0"/"0.0" forms — and the file uses LF line endings throughout.
+  pass is blank on exactly the 31 parse_fail=1 rows, where no verdict was
+  produced. reasoning_tokens is blank on 68 rows the provider did not report
+  it for (unrelated to parse failures), and first_error_step is blank
+  wherever no first error step was localised.
+
+────────────────────────────────────────────────────────────────────────────
   COMMAND-LINE FLAGS
 ────────────────────────────────────────────────────────────────────────────
   --model         run_opcount_experiment.py only; one key from MODELS.
