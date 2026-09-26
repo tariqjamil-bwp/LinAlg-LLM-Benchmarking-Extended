@@ -236,7 +236,7 @@ All pipeline output is written to `data/output/{Model}/` — this is the central
              Sign Drift, and Depth-Gated Collapse in Matrix Arithmetic},
   author  = {ANONYMOUS — replace after ICLR review},
   journal = {arXiv preprint arXiv:XXXX.XXXXX},
-  year    = {2026}
+  year    = {2027}
 }
 ```
 
