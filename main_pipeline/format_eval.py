@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import hashlib
 import io
 import json
 import logging
@@ -223,11 +222,6 @@ def row_key(qid: str, model: str, fmt: str) -> Tuple[str, str, str]:
     return (str(qid).strip(), str(model).strip(), str(fmt).strip().lower())
 
 
-def make_session_id(qid: str, idx: int, source_file: str) -> str:
-    src_hash = hashlib.sha1((source_file or "").encode("utf-8")).hexdigest()[:8]
-    return f"eval_{src_hash}_{qid}_{idx}"
-
-
 def atomic_write_text(path: str, text: str) -> None:
     """Write *text* to *path* atomically (via a tmp file in the same dir)."""
     ensure_dir(path)
@@ -323,129 +317,97 @@ class EvaluationCheckpoint:
 
 
 # ============================================================================
-# LLM AGENT — single source of truth for model selection
+# LLM VERIFICATION — single source of truth for model selection
 # ============================================================================
-# This is the ONLY definition of get_model_for_agent in the file. The previous
-# version had two: a local one (with modelnum 1..4) plus an import from
-# `models`, and the import silently shadowed the local one. The local one was
-# never used and the typo OPENAI_API_KEYx made one branch a permanent dead-end.
+VERIFICATION_PROMPT = dedent("""
+    YOU ARE A MATHEMATICAL EQUIVALENCE VERIFICATION AGENT
 
-def get_model_for_agent(modelnum: int = 2):
-    """
-    Return a configured LiteLlm instance for the verification agent.
+    Your task: Determine if a model response mathematically equals the correct answer.
 
-    Args:
-        modelnum:
-            1 -> openai/gpt-5-mini            (uses OPENAI_API_KEY)
-            2 -> openrouter/deepseek-v3.2     (uses OPENROUTER_API_KEY)  [default]
-            3 -> openrouter/openai/gpt-5-mini (uses OPENROUTER_API_KEY)
-            4 -> openrouter/openai/gpt-oss-120b (uses OPENROUTER_API_KEY)
-    """
-    from google.adk.models.lite_llm import LiteLlm
+    KEY PRINCIPLE: Two expressions are CORRECT if they represent the SAME mathematical
+    value, regardless of representation format.
 
-    table = {
-        1: ("openai/gpt-5-mini",                   "OPENAI_API_KEY"),
-        2: ("openrouter/deepseek/deepseek-v3.2",   "OPENROUTER_API_KEY"),
-        3: ("openrouter/openai/gpt-5-mini",        "OPENROUTER_API_KEY"),
-        4: ("openrouter/openai/gpt-oss-120b",      "OPENROUTER_API_KEY"),
-    }
-    if modelnum not in table:
-        raise ValueError(f"Invalid modelnum: {modelnum}. Use 1, 2, 3, or 4.")
+    UNIVERSAL EQUIVALENCE RULES:
+    1. Numerical equivalence: |val1 - val2| < 0.0001
+    2. Structural equivalence: Matching dimensions + all elements equivalent
+    3. Form independence: Accept fractions, decimals, expanded, factored, etc.
+    4. Precision handling: Rounding and floating-point variations OK if within tolerance
+    5. Notation irrelevance: LaTeX, ASCII, plain text — all equivalent if same math
+    6. Operations equivalence: Simplified vs unsimplified, factored vs expanded OK
 
-    model_name, key_env = table[modelnum]
-    api_key = os.environ.get(key_env)
-    if not api_key:
-        logger.warning(
-            f"Environment variable {key_env!r} is not set — "
-            f"model {model_name!r} will fail at call time."
-        )
-    return LiteLlm(model=model_name, api_key=api_key)
+    VERIFICATION ALGORITHM:
+    Step 1 - EXTRACT: Identify data type and extract components
+    Step 2 - COMPARE: Compare based on type using equivalence rules above
+    Step 3 - VALIDATE: Double-check comparison accuracy
+    Step 4 - DECIDE: Return true if equivalent, false if not
 
+    EXAMPLES THAT SHOULD BE CORRECT:
+    - Model: -1/67           vs Expected: -0.0149            -> CORRECT (within tolerance)
+    - Model: [[1/2,0],[0,1]] vs Expected: [[0.5,0],[0,1.0]]  -> CORRECT
+    - Model: x^2 + 3x + 2    vs Expected: (x+1)(x+2)         -> CORRECT
+    - Model: 0.333           vs Expected: 1/3                -> CORRECT (within tolerance)
 
-def _build_agent(model):
-    """Construct the verification LlmAgent with the equivalence prompt."""
-    from google.adk.agents import LlmAgent
-    return LlmAgent(
-        model=model,
-        name="verification_agent",
-        description=(
-            "Verifies if a model response conceptually matches a correct "
-            "mathematical answer."
-        ),
-        instruction=dedent("""
-            YOU ARE A MATHEMATICAL EQUIVALENCE VERIFICATION AGENT
+    RESPOND WITH JSON ONLY:
+    {"is_correct": true,  "explanation": "brief reason"}
+    or
+    {"is_correct": false, "explanation": "brief reason"}
+    No markdown fences, no extra text.
+""").strip()
 
-            Your task: Determine if a model response mathematically equals the correct answer.
-
-            KEY PRINCIPLE: Two expressions are CORRECT if they represent the SAME mathematical
-            value, regardless of representation format.
-
-            UNIVERSAL EQUIVALENCE RULES:
-            1. Numerical equivalence: |val1 - val2| < 0.0001
-            2. Structural equivalence: Matching dimensions + all elements equivalent
-            3. Form independence: Accept fractions, decimals, expanded, factored, etc.
-            4. Precision handling: Rounding and floating-point variations OK if within tolerance
-            5. Notation irrelevance: LaTeX, ASCII, plain text — all equivalent if same math
-            6. Operations equivalence: Simplified vs unsimplified, factored vs expanded OK
-
-            VERIFICATION ALGORITHM:
-            Step 1 - EXTRACT: Identify data type and extract components
-            Step 2 - COMPARE: Compare based on type using equivalence rules above
-            Step 3 - VALIDATE: Double-check comparison accuracy
-            Step 4 - DECIDE: Return true if equivalent, false if not
-
-            EXAMPLES THAT SHOULD BE CORRECT:
-            - Model: -1/67           vs Expected: -0.0149            -> CORRECT (within tolerance)
-            - Model: [[1/2,0],[0,1]] vs Expected: [[0.5,0],[0,1.0]]  -> CORRECT
-            - Model: x^2 + 3x + 2    vs Expected: (x+1)(x+2)         -> CORRECT
-            - Model: 0.333           vs Expected: 1/3                -> CORRECT (within tolerance)
-
-            RESPOND WITH JSON ONLY:
-            {"is_correct": true,  "explanation": "brief reason"}
-            or
-            {"is_correct": false, "explanation": "brief reason"}
-            No markdown fences, no extra text.
-        """).strip(),
-    )
-
+# modelnum -> (model name as passed to the API, required key env var)
+_MODEL_TABLE: Dict[int, Tuple[str, str]] = {
+    1: ("gpt-5-mini",             "OPENAI_API_KEY"),      # direct OpenAI
+    2: ("deepseek/deepseek-v3.2", "OPENROUTER_API_KEY"),  # via OpenRouter [default]
+    3: ("openai/gpt-5-mini",      "OPENROUTER_API_KEY"),  # via OpenRouter
+    4: ("openai/gpt-oss-120b",    "OPENROUTER_API_KEY"),  # via OpenRouter
+}
+_API_BASE: Dict[str, Optional[str]] = {
+    "OPENAI_API_KEY":     None,
+    "OPENROUTER_API_KEY": "https://openrouter.ai/api/v1",
+}
 
 # Lazy singleton — built on first call to `evaluate_dataframe`.
-_agent_runner = None
-_agent_runner_lock = threading.Lock()
+_verify_client = None
+_verify_model: Optional[str] = None
+_verify_lock = threading.Lock()
 
 
-def initialize_agent_runner(modelnum: int = 2) -> None:
-    """Create the agent Runner once; subsequent calls are no-ops."""
-    global _agent_runner
-    if _agent_runner is not None:
+def initialize_verification_client(modelnum: int = 2) -> None:
+    """Resolve the verification model/client once; subsequent calls are no-ops."""
+    global _verify_client, _verify_model
+    if _verify_client is not None:
         return
-    with _agent_runner_lock:
-        if _agent_runner is not None:
+    with _verify_lock:
+        if _verify_client is not None:
             return
-        from google.adk.runners import Runner
-        from google.adk.sessions import InMemorySessionService
+        from openai import AsyncOpenAI
 
-        model = get_model_for_agent(modelnum)
-        agent = _build_agent(model)
-        _agent_runner = Runner(
-            agent=agent,
-            app_name="matrix_eval_pipeline",
-            session_service=InMemorySessionService(),
-            auto_create_session=True,
-        )
-        logger.info(f"Agent runner created (modelnum={modelnum}).")
+        if modelnum not in _MODEL_TABLE:
+            raise ValueError(f"Invalid modelnum: {modelnum}. Use 1, 2, 3, or 4.")
+        model_name, key_env = _MODEL_TABLE[modelnum]
+        api_key = os.environ.get(key_env)
+        if not api_key:
+            logger.warning(
+                f"Environment variable {key_env!r} is not set — "
+                f"model {model_name!r} will fail at call time."
+            )
+        # AsyncOpenAI validates api_key at construction time, unlike the prior
+        # google.adk client which deferred the failure to first call. A
+        # placeholder here preserves per-row graceful degradation (auth error
+        # surfaces inside call_verification_agent, caught by _evaluate_one's
+        # retry loop) instead of crashing evaluate_dataframe for every row.
+        _verify_client = AsyncOpenAI(base_url=_API_BASE[key_env], api_key=api_key or "sk-missing")
+        _verify_model = model_name
+        logger.info(f"Verification client ready (modelnum={modelnum}, model={model_name}).")
 
 
 async def call_verification_agent(
     model_response: str,
     correct_answer: str,
-    session_id: str,
     *,
     max_response_chars: int = 20_000,
 ) -> dict:
-    """Send one verification request to the agent; return the parsed verdict."""
-    from google.genai import types
-
+    """Send one verification request via chat completion; return the parsed verdict."""
     model_response = truncate(model_response, max_response_chars, "RESP")
     correct_answer = truncate(correct_answer, max_response_chars, "ANS")
 
@@ -453,20 +415,17 @@ async def call_verification_agent(
         "model_response": model_response,
         "correct_answer": correct_answer,
     })
-    user_content = types.Content(role="user", parts=[types.Part(text=payload)])
 
-    response_text: Optional[str] = None
-    async for event in _agent_runner.run_async(
-        user_id="verifier",
-        session_id=session_id,
-        new_message=user_content,
-    ):
-        if event.is_final_response() and event.content and event.content.parts:
-            response_text = event.content.parts[0].text
-            break
-
-    if not response_text:
-        return {"is_correct": False, "explanation": "No response from agent"}
+    resp = await _verify_client.chat.completions.create(
+        model=_verify_model,
+        messages=[
+            {"role": "system", "content": VERIFICATION_PROMPT},
+            {"role": "user", "content": payload},
+        ],
+        temperature=0.0,
+        max_tokens=300,
+    )
+    response_text = resp.choices[0].message.content or ""
 
     text = response_text.strip()
     for fence in ("```json", "```"):
@@ -737,7 +696,6 @@ async def _evaluate_one(
     qid    = str(row.get("question_id", "")).strip()
     fmt    = str(row.get("format", "")).strip()
     model  = str(row.get("model_name", "")).strip()
-    source = str(row.get("_source_file", "")).strip()
 
     model_resp = "" if pd.isna(row.get("model_response")) else str(row["model_response"]).strip()
     truth      = "" if pd.isna(row.get("answer_latex"))   else str(row["answer_latex"]).strip()
@@ -749,13 +707,12 @@ async def _evaluate_one(
                           is_correct=None, explanation=msg)
         return pos, None, msg
 
-    session_id = make_session_id(qid, pos, source)
     last_exc: Optional[Exception] = None
 
     async with semaphore:
         for attempt in range(1, max_retries + 1):
             try:
-                result      = await call_verification_agent(model_resp, truth, session_id)
+                result      = await call_verification_agent(model_resp, truth)
                 is_correct  = bool(result.get("is_correct", False))
                 explanation = str(result.get("explanation", ""))[:1000]
                 checkpoint.append(question_id=qid, model_name=model, fmt=fmt,
@@ -802,7 +759,7 @@ async def evaluate_dataframe(
       model_correct_int          1 / 0
       model_correct_explanation  agent reasoning (or gating message)
     """
-    initialize_agent_runner(modelnum)
+    initialize_verification_client(modelnum)
     checkpoint = EvaluationCheckpoint(checkpoint_path)
 
     cache: Dict[Tuple[str, str, str], dict] = {}
