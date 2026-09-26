@@ -231,7 +231,7 @@ All pipeline output is written to `data/output/{Model}/` — this is the central
 ## Citation
 
 ```bibtex
-@article{linalgbench2026,
+@article{linalgbench2027,
   title   = {LinAlg-Bench: When LLMs Stop Computing --- Structured Hallucination,
              Sign Drift, and Depth-Gated Collapse in Matrix Arithmetic},
   author  = {ANONYMOUS — replace after ICLR review},
